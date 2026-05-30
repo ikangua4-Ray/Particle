@@ -1,0 +1,819 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chrono-Cosmic 3D Particle Visualizer</title>
+    
+    <!-- Tailwind CSS for Premium glassmorphic UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- MediaPipe Hands and Camera Utilities -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            background-color: #030712;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        /* Custom scrollbar for control panel */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.3);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 3px;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glow-button {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glow-button:hover {
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+            border-color: rgba(99, 102, 241, 0.8);
+        }
+        /* Loading animation */
+        .spinner {
+            border-top-color: #6366f1;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="w-screen h-screen select-none text-slate-100">
+
+    <!-- 3D Canvas -->
+    <canvas id="visualizer-canvas" class="absolute inset-0 w-full h-full z-0"></canvas>
+
+    <!-- UI Overlay container -->
+    <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-6">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-start w-full pointer-events-auto">
+            <div class="glass-panel p-4 rounded-xl flex flex-col gap-1 max-w-sm">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-indigo-500 animate-pulse"></span>
+                    <h1 class="text-lg font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">COSMIC VISUALIZER</h1>
+                </div>
+                <p class="text-xs text-slate-400 leading-relaxed">High-performance particle engine featuring exclusive physical Right-Hand gesture spatial tracking.</p>
+            </div>
+
+            <!-- Tracking & Status Board -->
+            <div class="glass-panel p-4 rounded-xl flex flex-col gap-2 min-w-[240px]">
+                <h2 class="text-xs font-bold text-slate-400 border-b border-slate-700 pb-1">REAL-TIME TELEMETRY</h2>
+                <div class="flex justify-between items-center text-xs">
+                    <span>Target Tracking:</span>
+                    <span id="hand-status" class="px-2 py-0.5 rounded font-bold text-slate-300 bg-slate-800">REST STATE</span>
+                </div>
+                <div class="flex justify-between items-center text-xs">
+                    <span>Physical Hand:</span>
+                    <span id="physical-hand-detail" class="font-bold text-indigo-400">NONE</span>
+                </div>
+                <div class="grid grid-cols-2 gap-x-2 gap-y-1 mt-1 text-[10px] text-slate-400 border-t border-slate-800 pt-1.5">
+                    <div>PosX: <span id="telemetry-x" class="text-slate-200">0.00</span></div>
+                    <div>Scale: <span id="telemetry-scale" class="text-slate-200">1.00</span></div>
+                    <div>PosY: <span id="telemetry-y" class="text-slate-200">0.00</span></div>
+                    <div>RotZ: <span id="telemetry-rot" class="text-slate-200">0.00°</span></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace: Dashboard / Controls and Hidden Webcam Feed -->
+        <div class="flex justify-between items-end w-full pointer-events-auto mt-auto gap-6">
+            
+            <!-- Left Panel: Mode Controls & Audio Sensitivity -->
+            <div class="glass-panel p-5 rounded-2xl w-80 flex flex-col gap-4">
+                <div>
+                    <label class="text-xs font-bold text-indigo-300 uppercase tracking-widest block mb-2">Simulation Preset</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-solar" class="glow-button px-3 py-2 text-xs font-bold bg-indigo-600/30 border border-indigo-500/30 rounded-lg text-indigo-200 hover:bg-indigo-600/50">
+                            Solar System
+                        </button>
+                        <button id="btn-universe" class="glow-button px-3 py-2 text-xs font-bold bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-400 hover:bg-slate-700/50">
+                            Cosmic Web
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-indigo-300 uppercase tracking-widest block mb-2">Engine Density</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button id="density-low" class="px-2 py-1 text-[10px] font-bold bg-slate-800/40 border border-slate-700/50 rounded text-slate-400 hover:bg-slate-700/50">15K</button>
+                        <button id="density-medium" class="px-2 py-1 text-[10px] font-bold bg-indigo-600/20 border border-indigo-500/40 rounded text-indigo-300">50K</button>
+                        <button id="density-high" class="px-2 py-1 text-[10px] font-bold bg-slate-800/40 border border-slate-700/50 rounded text-slate-400 hover:bg-slate-700/50">120K</button>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-xs font-bold text-indigo-300 uppercase tracking-widest">Audio Sensitivity</label>
+                        <span id="sensitivity-val" class="text-xs font-mono text-slate-400">1.5x</span>
+                    </div>
+                    <input type="range" id="slider-sens" min="0.5" max="3.0" step="0.1" value="1.5" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+                </div>
+
+                <div class="flex flex-col gap-2 pt-1 border-t border-slate-800">
+                    <button id="btn-mic" class="glow-button w-full py-2.5 px-4 bg-slate-800/60 border border-slate-700 rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-slate-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                        <span>Enable Mic Feedback</span>
+                    </button>
+                    <p class="text-[9px] text-slate-400 text-center">Microphone input modulates particle speed, color shifts and size turbulence. Fallback is automated synthetic resonance.</p>
+                </div>
+            </div>
+
+            <!-- Right Panel: Camera Mirror & Tracking Interface -->
+            <div class="glass-panel p-4 rounded-2xl w-64 flex flex-col gap-3">
+                <div class="relative w-full aspect-video rounded-lg overflow-hidden bg-slate-950 border border-slate-800">
+                    <!-- Hidden video asset processed by MediaPipe -->
+                    <video id="webcam" class="absolute inset-0 w-full h-full object-cover opacity-30 transform -scale-x-100" autoplay playsinline muted></video>
+                    <canvas id="hand-canvas" class="absolute inset-0 w-full h-full object-cover transform -scale-x-100"></canvas>
+                    
+                    <div id="video-overlay" class="absolute inset-0 flex items-center justify-center bg-slate-900/85">
+                        <button id="btn-camera" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-slate-100 font-bold text-xs rounded shadow-lg transition-colors pointer-events-auto">
+                            Start Camera
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between text-xs px-1">
+                    <span class="text-slate-400">Mirror Camera feed</span>
+                    <label class="relative inline-flex items-center cursor-pointer pointer-events-auto">
+                        <input type="checkbox" id="toggle-mirror" checked class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+                <div class="text-[9px] text-indigo-400/90 leading-relaxed bg-indigo-950/40 border border-indigo-900/40 p-2 rounded">
+                    <strong>Exclusive Filter Action:</strong> The visualizer matches only your physical <strong>Right Hand</strong>. Left Hand gestures are dynamically filtered out.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Initial System Setup Progress/Load Screen -->
+    <div id="loading-overlay" class="absolute inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center gap-4 transition-opacity duration-700">
+        <div class="w-12 h-12 rounded-full border-4 border-slate-800 border-t-indigo-500 spinner"></div>
+        <div class="text-center">
+            <h2 class="text-sm font-mono tracking-widest text-indigo-400 font-bold">BOOTING SYSTEM</h2>
+            <p class="text-xs text-slate-500 mt-1">Pre-compiling WebGL pipelines and procedural particle arrays...</p>
+        </div>
+    </div>
+
+    <script>
+        // --- System State Configuration ---
+        const CONFIG = {
+            targetFPS: 60,
+            lerpFactor: 0.08, // Buttery smooth spatial interpolation
+            micSensitivity: 1.5,
+            particleCount: 50000,
+            isMirrored: true, // Mirror camera default
+            currentPreset: 'solar' // 'solar' or 'universe'
+        };
+
+        // --- Active Kinematics ---
+        const kinematics = {
+            posX: 0, posY: 0, scale: 1, rotZ: 0,
+            targetX: 0, targetY: 0, targetScale: 1, targetRotZ: 0
+        };
+
+        // --- Audio Analytics State ---
+        let audioContext, analyser, dataArray;
+        let isMicEnabled = false;
+        let audioIntensity = 1.0;
+
+        // --- Graphics Pipelines ---
+        let scene, camera, renderer, particleSystem;
+        let positions = [], velocities = [], originalPos = [], attributes = [];
+        let geometry;
+
+        const canvasEl = document.getElementById('visualizer-canvas');
+        
+        // Setup WebGL System
+        function initWebGL() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x030712, 0.002);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 180;
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(scene.fog.color, 1);
+
+            buildParticleSystem();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // Generate glowing circular sprite procedurally via 2D Canvas
+        function createGlowSprite() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16;
+            canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 16, 16);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+
+        // Compile custom systems based on selection presets
+        function buildParticleSystem() {
+            if (particleSystem) scene.remove(particleSystem);
+
+            geometry = new THREE.BufferGeometry();
+            positions = new Float32Array(CONFIG.particleCount * 3);
+            originalPos = new Float32Array(CONFIG.particleCount * 3);
+            velocities = new Float32Array(CONFIG.particleCount * 3);
+            const colors = new Float32Array(CONFIG.particleCount * 3);
+
+            const colorSolar = [new THREE.Color(0xf59e0b), new THREE.Color(0xef4444), new THREE.Color(0x6366f1), new THREE.Color(0x06b6d4)];
+            const colorUniverse = [new THREE.Color(0x8b5cf6), new THREE.Color(0xec4899), new THREE.Color(0x3b82f6), new THREE.Color(0x10b981)];
+
+            const activeColors = CONFIG.currentPreset === 'solar' ? colorSolar : colorUniverse;
+
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                let x = 0, y = 0, z = 0;
+
+                if (CONFIG.currentPreset === 'solar') {
+                    // Solar System Preset: Hierarchical Orbital Concentric Bands
+                    const rnd = Math.random();
+                    if (rnd < 0.12) {
+                        // Dense Stellar core (The Sun)
+                        const radius = Math.random() * 8;
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos((Math.random() * 2) - 1);
+                        x = radius * Math.sin(phi) * Math.cos(theta);
+                        y = radius * Math.sin(phi) * Math.sin(theta);
+                        z = radius * Math.cos(phi);
+                        
+                        // Rotational velocity vectors
+                        velocities[i * 3] = -y * 0.05;
+                        velocities[i * 3 + 1] = x * 0.05;
+                        velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.2;
+                    } else {
+                        // Disk Orbit Band Distributions
+                        const distFromCore = 12 + Math.pow(Math.random(), 1.5) * 140;
+                        const angle = Math.random() * Math.PI * 2;
+                        
+                        // Subtle vertical ripple/thickness offsets
+                        const height = (Math.random() - 0.5) * (14 - (distFromCore * 0.08));
+                        
+                        x = Math.cos(angle) * distFromCore;
+                        y = Math.sin(angle) * distFromCore;
+                        z = height;
+
+                        // Orbital motion parameters matching gravity degradation profiles
+                        const orbitalSpeed = Math.sqrt(100 / distFromCore) * 0.45;
+                        velocities[i * 3] = -Math.sin(angle) * orbitalSpeed;
+                        velocities[i * 3 + 1] = Math.cos(angle) * orbitalSpeed;
+                        velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.03;
+                    }
+                } else {
+                    // Cosmic Web Preset: High fractal cluster filaments using mathematical attractor
+                    const cluster = Math.floor(Math.random() * 5);
+                    let targetX = (Math.random() - 0.5) * 180;
+                    let targetY = (Math.random() - 0.5) * 180;
+                    let targetZ = (Math.random() - 0.5) * 180;
+
+                    if (cluster > 0) {
+                        // Clustered attraction points (galaxies/filaments)
+                        const centers = [
+                            {x: -60, y: 40, z: -20}, {x: 70, y: -30, z: 40},
+                            {x: -20, y: -50, z: 50}, {x: 40, y: 60, z: -50}
+                        ];
+                        const center = centers[cluster - 1];
+                        const radius = Math.pow(Math.random(), 2.5) * 45;
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos((Math.random() * 2) - 1);
+
+                        x = center.x + radius * Math.sin(phi) * Math.cos(theta);
+                        y = center.y + radius * Math.sin(phi) * Math.sin(theta);
+                        z = center.z + radius * Math.cos(phi);
+
+                        // Slow drifting streams along filaments
+                        velocities[i * 3] = (center.x - x) * 0.002 + (Math.random() - 0.5) * 0.05;
+                        velocities[i * 3 + 1] = (center.y - y) * 0.002 + (Math.random() - 0.5) * 0.05;
+                        velocities[i * 3 + 2] = (center.z - z) * 0.002 + (Math.random() - 0.5) * 0.05;
+                    } else {
+                        // Background cosmic dust
+                        x = (Math.random() - 0.5) * 350;
+                        y = (Math.random() - 0.5) * 350;
+                        z = (Math.random() - 0.5) * 350;
+                        velocities[i * 3] = (Math.random() - 0.5) * 0.02;
+                        velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.02;
+                        velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.02;
+                    }
+                }
+
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                originalPos[i * 3] = x;
+                originalPos[i * 3 + 1] = y;
+                originalPos[i * 3 + 2] = z;
+
+                // Set beautiful dynamic gradient spectrum matching preset models
+                const colorBase = activeColors[Math.floor(Math.random() * activeColors.length)];
+                colors[i * 3] = colorBase.r;
+                colors[i * 3 + 1] = colorBase.g;
+                colors[i * 3 + 2] = colorBase.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: CONFIG.currentPreset === 'solar' ? 0.75 : 0.95,
+                map: createGlowSprite(),
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+        }
+
+        // Window resize event handler
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Audio Feedback Integration ---
+        function setupAudioAnalysis(stream) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const bufferLength = analyser.frequencyBinCount;
+            dataArray = new Uint8Array(bufferLength);
+            isMicEnabled = true;
+
+            document.getElementById('btn-mic').innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                <span class="text-green-400">Microphone Linked</span>
+            `;
+        }
+
+        // Simulated background harmonic loop when mic is inactive
+        function getSyntheticResonance() {
+            const time = Date.now() * 0.0015;
+            return Math.sin(time) * 0.35 + Math.cos(time * 2.3) * 0.15 + 0.6;
+        }
+
+        function analyzeAudio() {
+            if (isMicEnabled && analyser) {
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const average = sum / dataArray.length;
+                // Scale range dynamically based on sensitivity slider settings
+                audioIntensity = (average / 255.0) * CONFIG.micSensitivity * 3.5;
+            } else {
+                audioIntensity = getSyntheticResonance() * CONFIG.micSensitivity;
+            }
+            // Constrain limits gracefully
+            audioIntensity = Math.max(0.1, Math.min(audioIntensity, 4.0));
+        }
+
+        // --- Decoupled Engine Core Loop (Ticks independent of hardware frame frequency) ---
+        let lastTime = performance.now();
+        const fixedTimeStep = 1000 / CONFIG.targetFPS; // Fixed 60Hz physics clock internally
+        let accumulator = 0;
+
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+
+            // Audio computations
+            analyzeAudio();
+
+            // Measure elapsed delta safely
+            let delta = currentTime - lastTime;
+            if (delta > 250) delta = 250; // Cap to prevent spiral of death during backgrounding
+            lastTime = currentTime;
+            accumulator += delta;
+
+            // Step independent physics tracking frame by frame
+            while (accumulator >= fixedTimeStep) {
+                updatePhysics();
+                accumulator -= fixedTimeStep;
+            }
+
+            // Smooth Interpolation Engine (Continuous Frame LERPing)
+            kinematics.posX = THREE.MathUtils.lerp(kinematics.posX, kinematics.targetX, CONFIG.lerpFactor);
+            kinematics.posY = THREE.MathUtils.lerp(kinematics.posY, kinematics.targetY, CONFIG.lerpFactor);
+            kinematics.scale = THREE.MathUtils.lerp(kinematics.scale, kinematics.targetScale, CONFIG.lerpFactor);
+            kinematics.rotZ = THREE.MathUtils.lerp(kinematics.rotZ, kinematics.targetRotZ, CONFIG.lerpFactor);
+
+            // Apply smooth kinetic variables to overall Points container
+            if (particleSystem) {
+                particleSystem.position.x = kinematics.posX * 120;
+                particleSystem.position.y = kinematics.posY * 80;
+                particleSystem.scale.setScalar(kinematics.scale);
+                particleSystem.rotation.z = kinematics.rotZ;
+                
+                // Slow ambient passive spinning
+                particleSystem.rotation.y += 0.001;
+            }
+
+            // Render updated scene back to front
+            renderer.render(scene, camera);
+
+            // Update user Telemetry monitor numbers
+            document.getElementById('telemetry-x').innerText = kinematics.posX.toFixed(2);
+            document.getElementById('telemetry-y').innerText = kinematics.posY.toFixed(2);
+            document.getElementById('telemetry-scale').innerText = kinematics.scale.toFixed(2);
+            const degreeAngle = (kinematics.rotZ * (180 / Math.PI)) % 360;
+            document.getElementById('telemetry-rot').innerText = degreeAngle.toFixed(0) + "°";
+        }
+
+        // Physics solver running under fixed time step (Decoupled from render framerate)
+        function updatePhysics() {
+            if (!particleSystem) return;
+
+            const posArray = geometry.attributes.position.array;
+            const size = CONFIG.particleCount;
+
+            // Scale turbulent intensity with music
+            const turbulence = 0.05 * audioIntensity;
+            const speedModifier = 0.2 + (audioIntensity * 0.45);
+
+            for (let i = 0; i < size; i++) {
+                // Orbital or Filament dynamics velocity updates
+                posArray[i * 3] += velocities[i * 3] * speedModifier;
+                posArray[i * 3 + 1] += velocities[i * 3 + 1] * speedModifier;
+                posArray[i * 3 + 2] += velocities[i * 3 + 2] * speedModifier;
+
+                if (CONFIG.currentPreset === 'solar') {
+                    // Pull back force if particles drift excessively
+                    const dx = posArray[i * 3];
+                    const dy = posArray[i * 3 + 1];
+                    const dz = posArray[i * 3 + 2];
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist > 250) {
+                        posArray[i * 3] = originalPos[i * 3];
+                        posArray[i * 3 + 1] = originalPos[i * 3 + 1];
+                        posArray[i * 3 + 2] = originalPos[i * 3 + 2];
+                    }
+                } else {
+                    // Slowly cycle chaotic cosmic web filaments dynamically with wave-functions
+                    const noiseIndex = i * 0.005 + lastTime * 0.0001;
+                    posArray[i * 3] += Math.sin(noiseIndex) * turbulence;
+                    posArray[i * 3 + 1] += Math.cos(noiseIndex * 1.5) * turbulence;
+                    posArray[i * 3 + 2] += Math.sin(noiseIndex * 2.1) * turbulence;
+
+                    // Bounds reset
+                    const dist = Math.sqrt(posArray[i*3]**2 + posArray[i*3+1]**2 + posArray[i*3+2]**2);
+                    if (dist > 350) {
+                        posArray[i * 3] = originalPos[i * 3];
+                        posArray[i * 3 + 1] = originalPos[i * 3 + 1];
+                        posArray[i * 3 + 2] = originalPos[i * 3 + 2];
+                    }
+                }
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+        }
+
+        // --- Hand Tracking & Gestures Processing (MediaPipe) ---
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('hand-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusElement = document.getElementById('hand-status');
+        const detailElement = document.getElementById('physical-hand-detail');
+
+        function onResults(results) {
+            // Match canvas overlay sizing
+            if (canvasElement.width !== videoElement.videoWidth) {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            let rightHandDetected = false;
+            let leftHandDetected = false;
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                // Loop through and identify hands matching user physical right perspective
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const classification = results.multiHandedness[i];
+                    const landmarks = results.multiHandLandmarks[i];
+                    
+                    const detectedLabel = classification.label; // MediaPipe classification 'Left' or 'Right'
+                    
+                    // --- HIGHLY ACCURATE HANDEDNESS ALIGNMENT AND FILTERING ---
+                    // By default, inside mirrored camera stream setup:
+                    // A user's physical Right hand is viewed as "Left" inside raw input frame.
+                    // If toggle-mirror option is ON, MediaPipe returns 'Left' for physical Right hand.
+                    // If toggle-mirror option is OFF, MediaPipe returns 'Right' for physical Right hand.
+                    const isPhysicalRight = CONFIG.isMirrored ? (detectedLabel === 'Left') : (detectedLabel === 'Right');
+
+                    if (isPhysicalRight) {
+                        rightHandDetected = true;
+                        
+                        // Extract tracking coordinates and map dynamically to kinematic targets
+                        processRightHandTelemetry(landmarks);
+                        
+                        // Render tracking skeleton exclusively on overlay canvas (Right Hand Only)
+                        drawHandTracking(landmarks, '#6366f1');
+                    } else {
+                        leftHandDetected = true;
+                    }
+                }
+            }
+
+            // Update UI State Board
+            if (rightHandDetected) {
+                statusElement.innerText = "TRACKING ACTIVE";
+                statusElement.className = "px-2 py-0.5 rounded font-bold text-green-300 bg-green-950/80 border border-green-800";
+                detailElement.innerText = "RIGHT HAND (ACTIVE)";
+                detailElement.className = "font-bold text-green-400";
+            } else if (leftHandDetected) {
+                statusElement.innerText = "REST STATE (IGNORE)";
+                statusElement.className = "px-2 py-0.5 rounded font-bold text-amber-300 bg-amber-950/80 border border-amber-800";
+                detailElement.innerText = "LEFT HAND (IGNORED)";
+                detailElement.className = "font-bold text-amber-400";
+                
+                triggerRestState();
+            } else {
+                statusElement.innerText = "REST STATE";
+                statusElement.className = "px-2 py-0.5 rounded font-bold text-slate-300 bg-slate-800";
+                detailElement.innerText = "NONE";
+                detailElement.className = "font-bold text-indigo-400";
+                
+                triggerRestState();
+            }
+
+            canvasCtx.restore();
+        }
+
+        // Map tracked hand coordinate properties to kinematic targets
+        function processRightHandTelemetry(landmarks) {
+            // Wrist (0) and Palm Joint Center (9)
+            const wrist = landmarks[0];
+            const middleBase = landmarks[9];
+
+            // 1. Translation Position (X, Y mapped to normalized -1.0 to 1.0 coordinates)
+            // Reverse X coordinates if mirrored to match spatial physical orientation
+            const normX = CONFIG.isMirrored ? (1.0 - middleBase.x) : middleBase.x;
+            kinematics.targetX = (normX - 0.5) * 2.0; 
+            kinematics.targetY = -(middleBase.y - 0.5) * 2.0; // Flip visual Y layout
+
+            // 2. Scale tracking (Distance between Thumb Tip (4) and Index Tip (8))
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const dx = indexTip.x - thumbTip.x;
+            const dy = indexTip.y - thumbTip.y;
+            const dz = indexTip.z - thumbTip.z;
+            const pinchDistance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            
+            // Map index-thumb pinch gap range from 0.05 - 0.25 to scales between 0.35x and 2.5x
+            const normalizedScale = (pinchDistance - 0.05) / 0.20;
+            kinematics.targetScale = Math.max(0.35, Math.min(0.35 + normalizedScale * 2.15, 2.5));
+
+            // 3. Rotation (Calculate rotation angle of hand vector relative to absolute Y axis)
+            const rotX = middleBase.x - wrist.x;
+            const rotY = middleBase.y - wrist.y;
+            // Arc tangent offset calculation
+            let angleZ = Math.atan2(rotX, -rotY);
+            if (CONFIG.isMirrored) angleZ = -angleZ; // Align mirroring rotation direction
+            kinematics.targetRotZ = angleZ;
+        }
+
+        // Return system back to safe center point during tracker loss
+        function triggerRestState() {
+            kinematics.targetX = 0;
+            kinematics.targetY = 0;
+            kinematics.targetScale = 1.0;
+            kinematics.targetRotZ = 0;
+        }
+
+        // Draw basic premium high-performance hand joints and segments
+        function drawHandTracking(landmarks, color) {
+            canvasCtx.fillStyle = color;
+            canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+            canvasCtx.lineWidth = 3;
+
+            // Track bone links mapping
+            const connections = [
+                [0,1], [1,2], [2,3], [3,4], // Thumb
+                [0,5], [5,6], [6,7], [7,8], // Index
+                [5,9], [9,10], [10,11], [11,12], // Middle
+                [9,13], [13,14], [14,15], [15,16], // Ring
+                [13,17], [17,18], [18,19], [19,20], [0,17] // Pinky & Palm
+            ];
+
+            // Render connecting skeletal lines
+            connections.forEach(([s, e]) => {
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(landmarks[s].x * canvasElement.width, landmarks[s].y * canvasElement.height);
+                canvasCtx.lineTo(landmarks[e].x * canvasElement.width, landmarks[e].y * canvasElement.height);
+                canvasCtx.stroke();
+            });
+
+            // Render joint dots
+            for (let i = 0; i < landmarks.length; i++) {
+                const landmark = landmarks[i];
+                canvasCtx.beginPath();
+                canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, i === 4 || i === 8 ? 6 : 4, 0, Math.PI * 2);
+                canvasCtx.fill();
+            }
+        }
+
+        // --- Setup MediaPipe Pipeline ---
+        let cameraUtilsInstance = null;
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.65,
+            minTrackingConfidence: 0.65
+        });
+
+        hands.onResults(onResults);
+
+        // --- Interaction Listeners & Controller Mappings ---
+        
+        // Preset Controls
+        document.getElementById('btn-solar').addEventListener('click', () => {
+            if (CONFIG.currentPreset === 'solar') return;
+            CONFIG.currentPreset = 'solar';
+            updatePresetUI();
+        });
+
+        document.getElementById('btn-universe').addEventListener('click', () => {
+            if (CONFIG.currentPreset === 'universe') return;
+            CONFIG.currentPreset = 'universe';
+            updatePresetUI();
+        });
+
+        function updatePresetUI() {
+            const btnSolar = document.getElementById('btn-solar');
+            const btnUniverse = document.getElementById('btn-universe');
+
+            if (CONFIG.currentPreset === 'solar') {
+                btnSolar.className = "glow-button px-3 py-2 text-xs font-bold bg-indigo-600/30 border border-indigo-500/30 rounded-lg text-indigo-200 hover:bg-indigo-600/50";
+                btnUniverse.className = "glow-button px-3 py-2 text-xs font-bold bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-400 hover:bg-slate-700/50";
+            } else {
+                btnSolar.className = "glow-button px-3 py-2 text-xs font-bold bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-400 hover:bg-slate-700/50";
+                btnUniverse.className = "glow-button px-3 py-2 text-xs font-bold bg-indigo-600/30 border border-indigo-500/30 rounded-lg text-indigo-200 hover:bg-indigo-600/50";
+            }
+
+            // Build new configuration
+            buildParticleSystem();
+        }
+
+        // Density Controls
+        const densities = {
+            'density-low': 15000,
+            'density-medium': 50000,
+            'density-high': 120000
+        };
+
+        Object.keys(densities).forEach(id => {
+            document.getElementById(id).addEventListener('click', () => {
+                CONFIG.particleCount = densities[id];
+                
+                // Update UI selection
+                Object.keys(densities).forEach(key => {
+                    const el = document.getElementById(key);
+                    if (key === id) {
+                        el.className = "px-2 py-1 text-[10px] font-bold bg-indigo-600/20 border border-indigo-500/40 rounded text-indigo-300";
+                    } else {
+                        el.className = "px-2 py-1 text-[10px] font-bold bg-slate-800/40 border border-slate-700/50 rounded text-slate-400 hover:bg-slate-700/50";
+                    }
+                });
+
+                buildParticleSystem();
+            });
+        });
+
+        // Audio Sensitivity Controls
+        const sliderSens = document.getElementById('slider-sens');
+        const sensVal = document.getElementById('sensitivity-val');
+        sliderSens.addEventListener('input', (e) => {
+            CONFIG.micSensitivity = parseFloat(e.target.value);
+            sensVal.innerText = CONFIG.micSensitivity.toFixed(1) + "x";
+        });
+
+        // Toggle Mirror Controls
+        const toggleMirror = document.getElementById('toggle-mirror');
+        toggleMirror.addEventListener('change', (e) => {
+            CONFIG.isMirrored = e.target.checked;
+            const video = document.getElementById('webcam');
+            const overlayCanvas = document.getElementById('hand-canvas');
+            if (CONFIG.isMirrored) {
+                video.classList.add('-scale-x-100');
+                overlayCanvas.classList.add('-scale-x-100');
+            } else {
+                video.classList.remove('-scale-x-100');
+                overlayCanvas.classList.remove('-scale-x-100');
+            }
+        });
+
+        // Mic Connection Request
+        document.getElementById('btn-mic').addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                setupAudioAnalysis(stream);
+            } catch (err) {
+                console.warn('Microphone access denied. Operating in automatic synthetic simulation mode.', err);
+            }
+        });
+
+        // Camera Activation Action
+        document.getElementById('btn-camera').addEventListener('click', async () => {
+            const overlay = document.getElementById('video-overlay');
+            overlay.innerHTML = `
+                <div class="flex flex-col items-center gap-2 text-center p-4">
+                    <div class="w-6 h-6 rounded-full border-2 border-slate-800 border-t-indigo-500 spinner"></div>
+                    <span class="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Activating Lens...</span>
+                </div>
+            `;
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 320, height: 240, frameRate: { ideal: 30 } }
+                });
+                videoElement.srcObject = stream;
+                videoElement.addEventListener('loadedmetadata', () => {
+                    overlay.classList.add('hidden');
+                });
+
+                cameraUtilsInstance = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({ image: videoElement });
+                    },
+                    width: 320,
+                    height: 240
+                });
+                cameraUtilsInstance.start();
+            } catch (err) {
+                console.error('Camera access rejected.', err);
+                overlay.innerHTML = `
+                    <div class="p-3 text-center">
+                        <p class="text-[10px] text-red-400 font-bold">LENS SYSTEM UNAVAILABLE</p>
+                        <p class="text-[9px] text-slate-400 mt-1 leading-normal">Ensure access permissions are authorized for this web app domain.</p>
+                    </div>
+                `;
+            }
+        });
+
+        // --- System Boot initialization ---
+        window.onload = function() {
+            initWebGL();
+            
+            // Start the independent fixed-timestep render clock loop
+            requestAnimationFrame(animate);
+
+            // Turn off Loader screen smoothly
+            setTimeout(() => {
+                const loader = document.getElementById('loading-overlay');
+                loader.style.opacity = '0';
+                setTimeout(() => loader.remove(), 700);
+            }, 800);
+        };
+    </script>
+</body>
+</html>
+
+```
